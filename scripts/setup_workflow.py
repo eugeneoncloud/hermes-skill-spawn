@@ -39,7 +39,29 @@ HERMES_HOME = Path.home() / ".hermes"
 HERMES_AGENT_DIR = HERMES_HOME / "hermes-agent"
 SLACK_SCRIPTS_DEFAULT = HERMES_HOME / "skills" / "productivity" / "slack" / "scripts"
 DELIVER_TEMPLATE = SCRIPT_DIR / "deliver_template.py"
-SLACK_WORKSPACE_URL = "https://eugeneoncloud.slack.com/docs/T09M25MA56E"
+
+# .env lookup order: skill root first, then global hermes .env
+_ENV_PATHS = [SKILL_DIR / ".env", HERMES_HOME / ".env"]
+
+
+# ---------------------------------------------------------------------------
+# .env loader
+# ---------------------------------------------------------------------------
+
+def _load_env() -> dict[str, str]:
+    """Parse KEY=VALUE pairs from the first .env file that exists."""
+    for path in _ENV_PATHS:
+        if path.exists():
+            env: dict[str, str] = {}
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                env[key.strip()] = val.strip().strip('"').strip("'")
+            if env:
+                return env
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +69,12 @@ SLACK_WORKSPACE_URL = "https://eugeneoncloud.slack.com/docs/T09M25MA56E"
 # ---------------------------------------------------------------------------
 
 def _get_slack_token() -> str | None:
+    """Load SLACK_BOT_TOKEN from .env (skill root → ~/.hermes/.env)."""
+    env = _load_env()
+    token = env.get("SLACK_BOT_TOKEN")
+    if token:
+        return token
+    # Fallback: try slack_auth.py (reads ~/.hermes/.env directly)
     sys.path.insert(0, str(SLACK_SCRIPTS_DEFAULT))
     try:
         from slack_auth import get_slack_token
@@ -152,12 +180,14 @@ def generate_deliver_script(
     """Read deliver_template.py, fill placeholders, write to workspace/deliver.py."""
     template = DELIVER_TEMPLATE.read_text(encoding="utf-8")
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    skill_env_path = str(SKILL_DIR / ".env")
 
     deliver_script = template.replace("{SKILL_NAME}", skill_name)
     deliver_script = deliver_script.replace("{CHANNEL_ID}", channel_id)
     deliver_script = deliver_script.replace("{CHANNEL_NAME}", channel_name)
     deliver_script = deliver_script.replace("{SLACK_SCRIPTS}", str(slack_scripts))
     deliver_script = deliver_script.replace("{GENERATED_AT}", now_str)
+    deliver_script = deliver_script.replace("{SKILL_ENV_PATH}", skill_env_path)
 
     out_path = workspace / "deliver.py"
     out_path.write_text(deliver_script, encoding="utf-8")

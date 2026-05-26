@@ -22,13 +22,41 @@ SKILL_NAME = "{SKILL_NAME}"
 CHANNEL_ID = "{CHANNEL_ID}"
 CHANNEL_NAME = "{CHANNEL_NAME}"
 SLACK_SCRIPTS = "{SLACK_SCRIPTS}"
+# .env lookup order: skill root first, then global hermes .env
+_ENV_PATHS = ["{SKILL_ENV_PATH}", str(Path.home() / ".hermes" / ".env")]
+
+
+def _load_env() -> dict:
+    """Parse KEY=VALUE pairs from the first .env file found."""
+    for path in _ENV_PATHS:
+        p = Path(path)
+        if p.exists():
+            env = {}
+            for line in p.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                env[key.strip()] = val.strip().strip('"').strip("'")
+            if env:
+                return env
+    return {}
+
+
+def _get_token() -> str:
+    """Load SLACK_BOT_TOKEN from .env."""
+    token = _load_env().get("SLACK_BOT_TOKEN", "")
+    if not token:
+        # Fallback: slack_auth.py reads ~/.hermes/.env
+        sys.path.insert(0, SLACK_SCRIPTS)
+        from slack_auth import get_slack_token
+        token = get_slack_token() or ""
+    return token
 
 
 def _canvas_base_url() -> str:
-    """Derive canvas base URL from auth.test — never hardcoded."""
-    sys.path.insert(0, SLACK_SCRIPTS)
-    from slack_auth import get_slack_token
-    token = get_slack_token()
+    """Derive canvas base URL dynamically from Slack auth.test."""
+    token = _get_token()
     req = urllib.request.Request(
         "https://slack.com/api/auth.test",
         headers={"Authorization": f"Bearer {token}"},
