@@ -14,6 +14,7 @@
 import json
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,7 +22,22 @@ SKILL_NAME = "{SKILL_NAME}"
 CHANNEL_ID = "{CHANNEL_ID}"
 CHANNEL_NAME = "{CHANNEL_NAME}"
 SLACK_SCRIPTS = "{SLACK_SCRIPTS}"
-SLACK_WORKSPACE_URL = "https://eugeneoncloud.slack.com/docs/T09M25MA56E"
+
+
+def _canvas_base_url() -> str:
+    """Derive canvas base URL from auth.test — never hardcoded."""
+    sys.path.insert(0, SLACK_SCRIPTS)
+    from slack_auth import get_slack_token
+    token = get_slack_token()
+    req = urllib.request.Request(
+        "https://slack.com/api/auth.test",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+    workspace_url = data.get("url", "https://slack.com/").rstrip("/")
+    team_id = data.get("team_id", "")
+    return f"{workspace_url}/docs/{team_id}"
 
 
 def _parse_canvas_id(stdout: str) -> str | None:
@@ -85,7 +101,7 @@ def run(content_file: str) -> int:
     canvas_id = create_canvas(title, str(content_path))
 
     if canvas_id:
-        canvas_url = f"{SLACK_WORKSPACE_URL}/{canvas_id}"
+        canvas_url = f"{_canvas_base_url()}/{canvas_id}"
         message = (
             f"📋 {SKILL_NAME} Report Updated\n"
             f"📅 {today}\n"
